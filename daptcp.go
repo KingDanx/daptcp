@@ -48,7 +48,7 @@ func (tcp *TCPConnection) listen() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to read from server: %v\n", err)
 			tcp.Connection.Close()
-			tcp.DisconnectChan <- "Disconnected"
+			tcp.DisconnectChan <- tcp.IpAddr
 			close(tcp.DataChannel) //? Close the channel on error to signal the message handler to stop
 			return                 //? Exit if we encounter an error
 		}
