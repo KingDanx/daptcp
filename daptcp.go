@@ -10,14 +10,15 @@ import (
 )
 
 type TCPConnection struct {
-	IpAddr      string
-	Port        string
-	ServerAddr  string
-	Connection  net.Conn
-	Writer      *bufio.Writer
-	Reader      *bufio.Reader
-	DataChannel chan string
-	handlers    []func(string)
+	IpAddr         string
+	Port           string
+	ServerAddr     string
+	Connection     net.Conn
+	Writer         *bufio.Writer
+	Reader         *bufio.Reader
+	DataChannel    chan string
+	DisconnectChan chan string
+	Handlers       []func(string)
 }
 
 func (tcp *TCPConnection) Write(m string) error {
@@ -38,7 +39,7 @@ func (tcp *TCPConnection) Listen() {
 }
 
 func (tcp *TCPConnection) OnMessage(handler func(string)) {
-	tcp.handlers = append(tcp.handlers, handler)
+	tcp.Handlers = append(tcp.Handlers, handler)
 }
 
 func (tcp *TCPConnection) listen() {
@@ -46,7 +47,10 @@ func (tcp *TCPConnection) listen() {
 		message, err := tcp.Reader.ReadString('\n')
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to read from server: %v\n", err)
-			close(tcp.DataChannel) //? Close the channel on error to signal the message handler to stop			return // Exit if we encounter an error
+			tcp.Connection.Close()
+			tcp.DisconnectChan <- "Disconnected"
+			close(tcp.DataChannel) //? Close the channel on error to signal the message handler to stop
+			return                 //? Exit if we encounter an error
 		}
 		tcp.DataChannel <- message
 	}
@@ -54,7 +58,7 @@ func (tcp *TCPConnection) listen() {
 
 func (tcp *TCPConnection) dispatchMessages() {
 	for message := range tcp.DataChannel {
-		for _, handler := range tcp.handlers {
+		for _, handler := range tcp.Handlers {
 			handler(message) //? Dispatch message to each handler
 		}
 	}
@@ -62,16 +66,17 @@ func (tcp *TCPConnection) dispatchMessages() {
 
 func NewTCPConn(ip string, port string) (TCPConnection, error) {
 	tcp := TCPConnection{
-		IpAddr:      ip,
-		Port:        port,
-		ServerAddr:  fmt.Sprintf("%s:%s", ip, port),
-		DataChannel: make(chan string),
-		handlers:    make([]func(string), 0),
+		IpAddr:         ip,
+		Port:           port,
+		ServerAddr:     fmt.Sprintf("%s:%s", ip, port),
+		DataChannel:    make(chan string),
+		DisconnectChan: make(chan string),
+		Handlers:       make([]func(string), 0),
 	}
 
 	dialer := net.Dialer{}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
 	conn, err := dialer.DialContext(ctx, "tcp", tcp.ServerAddr)
